@@ -10,14 +10,15 @@ package com.nr.agent.instrumentation.logbackclassic12;
 import ch.qos.logback.classic.Level;
 import com.newrelic.agent.bridge.AgentBridge;
 import com.newrelic.api.agent.NewRelic;
+import org.slf4j.MDC;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 public class AgentUtil {
     public static final int DEFAULT_NUM_OF_LOG_EVENT_ATTRIBUTES = 3;
@@ -40,6 +41,8 @@ public class AgentUtil {
     private static final boolean APP_LOGGING_METRICS_DEFAULT_ENABLED = true;
     private static final boolean APP_LOGGING_FORWARDING_DEFAULT_ENABLED = true;
     private static final boolean APP_LOGGING_FORWARD_STACK_TRACES_ENABLED = false;
+
+    private static final boolean APP_LOGGING_FORWARD_MDC_PROPERTIES_ENABLED = false;
     private static final boolean APP_LOGGING_LOCAL_DECORATING_DEFAULT_ENABLED = false;
 
     /**
@@ -67,6 +70,15 @@ public class AgentUtil {
                 PrintWriter pw = new PrintWriter(sw);
                 t.printStackTrace(pw);
                 logEventMap.put(STACKTRACE, sw.toString());
+            }
+
+            if (isApplicationForwardMdcPropertiesEnabled()) {
+                Map<String, String> mdc = MDC.getCopyOfContextMap();
+                getMdcKeys().forEach(mdcKey -> {
+                    if (mdc.containsKey(mdcKey) && mdc.get(mdcKey) != null) {
+                        logEventMap.put(mdcKey, mdc.get(mdcKey));
+                    }
+                });
             }
 
             AgentBridge.getAgent().getLogSender().recordLogEvent(logEventMap);
@@ -152,6 +164,30 @@ public class AgentUtil {
      */
     public static boolean isApplicationForwardStackTracesEnabled() {
         return NewRelic.getAgent().getConfig().getValue("application_logging.forward_stack_traces.enabled", APP_LOGGING_FORWARD_STACK_TRACES_ENABLED);
+    }
+
+
+    /**
+     * Check if the application_logging forward_stack_traces feature is enabled.
+     *
+     * @return true if enabled, else false
+     */
+    public static boolean isApplicationForwardMdcPropertiesEnabled() {
+        return NewRelic.getAgent().getConfig().getValue("application_logging.forward_mdc_properties.enabled", APP_LOGGING_FORWARD_MDC_PROPERTIES_ENABLED);
+    }
+
+    public static List<String> mdcKeys = null;
+    /**
+     * Checks if there are specific MDC fields that should be sent to New Relic with the rest of the log messages
+     * @return list of the MDC fields that should be copied to the log event map from the mapped diagnostic context
+     */
+    public static List<String> getMdcKeys() {
+        if (mdcKeys != null) {
+            return mdcKeys;
+        }
+        String mdcKeyList = NewRelic.getAgent().getConfig().getValue("application_logging.forward_mdc_include_list", "");
+        mdcKeys = Arrays.stream(mdcKeyList.split(",")).map(String::trim).collect(Collectors.toList());
+        return mdcKeys;
     }
 
     /**
